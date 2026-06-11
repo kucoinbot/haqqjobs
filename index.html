@@ -422,9 +422,6 @@ let allJobs = [];
 let currentFilter = 'all';
 let currentApplyJob = null;
 
-const REED_API_KEY   = 'e3d82bd9-5bda-48c8-9a46-7d7baf45a21a';
-const ADZUNA_APP_ID  = '6cdb0826';
-const ADZUNA_API_KEY = '267ec9dee63729f0b65a3b7657c0c850';
 const MIN_HOURLY = 12.21;
 
 const URGENT_KEYWORDS = [
@@ -489,6 +486,9 @@ function formatDate(dateStr) {
   return `${days} day${days > 1 ? 's' : ''} ago`;
 }
 
+// CORS proxy for browser-based API calls
+const CORS_PROXY = 'https://corsproxy.io/?';
+
 async function fetchReedJobs(keywords, postcode) {
   const params = new URLSearchParams({
     keywords: keywords || 'warehouse security construction care cleaning driver',
@@ -496,8 +496,10 @@ async function fetchReedJobs(keywords, postcode) {
     resultsToTake: 50,
     minimumSalary: Math.round(MIN_HOURLY * 2080)
   });
-  const res = await fetch(`https://www.reed.co.uk/api/1.0/search?${params}`, {
-    headers: { 'Authorization': 'Basic ' + btoa(REED_API_KEY + ':') }
+  const reedUrl = `https://www.reed.co.uk/api/1.0/search?${params}`;
+  const authHeader = 'Basic ' + btoa('e3d82bd9-5bda-48c8-9a46-7d7baf45a21a:');
+  const res = await fetch(CORS_PROXY + encodeURIComponent(reedUrl), {
+    headers: { 'Authorization': authHeader, 'x-requested-with': 'XMLHttpRequest' }
   });
   const data = await res.json();
   return (data.results || []).map(j => {
@@ -516,14 +518,16 @@ async function fetchReedJobs(keywords, postcode) {
 
 async function fetchAdzunaJobs(keywords, postcode) {
   const params = new URLSearchParams({
-    app_id: ADZUNA_APP_ID, app_key: ADZUNA_API_KEY,
+    app_id: '6cdb0826',
+    app_key: '267ec9dee63729f0b65a3b7657c0c850',
     results_per_page: 50,
     what: keywords || 'warehouse security labourer care assistant cleaner driver',
     where: postcode || '',
     salary_min: Math.round(MIN_HOURLY * 2080),
     max_days_old: 2
   });
-  const res = await fetch(`https://api.adzuna.com/v1/api/jobs/gb/search/1?${params}`);
+  const adzunaUrl = `https://api.adzuna.com/v1/api/jobs/gb/search/1?${params}`;
+  const res = await fetch(CORS_PROXY + encodeURIComponent(adzunaUrl));
   const data = await res.json();
   return (data.results || []).map(j => {
     const hoursAgo = j.created ? Math.round((Date.now() - new Date(j.created)) / 36e5) : 999;
@@ -621,14 +625,19 @@ async function loadJobs(keywords, postcode) {
   document.getElementById('unlock-gate').style.display = 'none';
   try {
     let jobs = [];
-    if (REED_API_KEY !== 'YOUR_REED_API_KEY') {
-      const [reed, adzuna] = await Promise.allSettled([fetchReedJobs(keywords, postcode), fetchAdzunaJobs(keywords, postcode)]);
-      if (reed.status === 'fulfilled') jobs.push(...reed.value);
-      if (adzuna.status === 'fulfilled') jobs.push(...adzuna.value);
-      jobs = jobs.filter(j => j.salary);
-      const seen = new Set();
-      jobs = jobs.filter(j => { const key = (j.title+j.company).toLowerCase().replace(/\s/g,''); if(seen.has(key)) return false; seen.add(key); return true; });
-    }
+    const [reed, adzuna] = await Promise.allSettled([
+      fetchReedJobs(keywords, postcode),
+      fetchAdzunaJobs(keywords, postcode)
+    ]);
+    if (reed.status === 'fulfilled') jobs.push(...reed.value);
+    if (adzuna.status === 'fulfilled') jobs.push(...adzuna.value);
+    jobs = jobs.filter(j => j.salary);
+    const seen = new Set();
+    jobs = jobs.filter(j => {
+      const key = (j.title + j.company).toLowerCase().replace(/\s/g,'');
+      if (seen.has(key)) return false;
+      seen.add(key); return true;
+    });
     if (jobs.length === 0) jobs = getSampleJobs();
     allJobs = sortByUrgency(jobs);
     applyFilter(currentFilter);
