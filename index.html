@@ -267,7 +267,7 @@ nav { background: #0f1923; padding: 0 2rem; display: flex; justify-content: spac
         <button class="filter-pill" onclick="filterJobs('driving', this)">Driving</button>
         <button class="filter-pill" onclick="filterJobs('cleaning', this)">Cleaning</button>
         <button class="filter-pill" onclick="filterJobs('care', this)">Care work</button>
-        <span class="source-info">Reed · Adzuna · Indeed — last 48hrs only</span>
+        <span class="source-info" id="source-info">Reed · Adzuna · Indeed — last 48hrs only</span>
       </div>
       <div class="jobs-list" id="jobs-container">
         <div class="loading"><div class="spinner"></div>Finding urgent jobs posted in the last 48 hours...</div>
@@ -486,8 +486,21 @@ function formatDate(dateStr) {
   return `${days} day${days > 1 ? 's' : ''} ago`;
 }
 
-// CORS proxy for browser-based API calls
-const CORS_PROXY = 'https://corsproxy.io/?';
+// CORS proxy — tries multiple proxies in order
+async function fetchWithProxy(url, options = {}) {
+  const proxies = [
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+    `https://corsproxy.io/?${encodeURIComponent(url)}`,
+    `https://proxy.cors.sh/${url}`
+  ];
+  for (const proxy of proxies) {
+    try {
+      const res = await fetch(proxy, { ...options, headers: { ...options.headers, 'x-requested-with': 'XMLHttpRequest' } });
+      if (res.ok) return res;
+    } catch(e) { continue; }
+  }
+  throw new Error('All proxies failed');
+}
 
 async function fetchReedJobs(keywords, postcode) {
   const params = new URLSearchParams({
@@ -496,11 +509,9 @@ async function fetchReedJobs(keywords, postcode) {
     resultsToTake: 50,
     minimumSalary: Math.round(MIN_HOURLY * 2080)
   });
-  const reedUrl = `https://www.reed.co.uk/api/1.0/search?${params}`;
-  const authHeader = 'Basic ' + btoa('e3d82bd9-5bda-48c8-9a46-7d7baf45a21a:');
-  const res = await fetch(CORS_PROXY + encodeURIComponent(reedUrl), {
-    headers: { 'Authorization': authHeader, 'x-requested-with': 'XMLHttpRequest' }
-  });
+  const url = `https://www.reed.co.uk/api/1.0/search?${params}`;
+  const auth = 'Basic ' + btoa('e3d82bd9-5bda-48c8-9a46-7d7baf45a21a:');
+  const res = await fetchWithProxy(url, { headers: { 'Authorization': auth } });
   const data = await res.json();
   return (data.results || []).map(j => {
     const hoursAgo = j.date ? Math.round((Date.now() - new Date(j.date)) / 36e5) : 999;
@@ -526,8 +537,8 @@ async function fetchAdzunaJobs(keywords, postcode) {
     salary_min: Math.round(MIN_HOURLY * 2080),
     max_days_old: 2
   });
-  const adzunaUrl = `https://api.adzuna.com/v1/api/jobs/gb/search/1?${params}`;
-  const res = await fetch(CORS_PROXY + encodeURIComponent(adzunaUrl));
+  const url = `https://api.adzuna.com/v1/api/jobs/gb/search/1?${params}`;
+  const res = await fetchWithProxy(url);
   const data = await res.json();
   return (data.results || []).map(j => {
     const hoursAgo = j.created ? Math.round((Date.now() - new Date(j.created)) / 36e5) : 999;
@@ -621,7 +632,7 @@ function renderHabeshJobs() {
 }
 
 async function loadJobs(keywords, postcode) {
-  document.getElementById('jobs-container').innerHTML = '<div class="loading"><div class="spinner"></div>Finding urgent jobs posted in the last 48 hours...</div>';
+  document.getElementById('jobs-container').innerHTML = '<div class="loading"><div class="spinner"></div>Connecting to Reed and Adzuna...</div>';
   document.getElementById('unlock-gate').style.display = 'none';
   try {
     let jobs = [];
@@ -629,8 +640,14 @@ async function loadJobs(keywords, postcode) {
       fetchReedJobs(keywords, postcode),
       fetchAdzunaJobs(keywords, postcode)
     ]);
-    if (reed.status === 'fulfilled') jobs.push(...reed.value);
-    if (adzuna.status === 'fulfilled') jobs.push(...adzuna.value);
+
+    const reedOk = reed.status === 'fulfilled';
+    const adzunaOk = adzuna.status === 'fulfilled';
+
+    if (reedOk) jobs.push(...reed.value);
+    if (adzunaOk) jobs.push(...adzuna.value);
+
+    // Remove no-salary and duplicates
     jobs = jobs.filter(j => j.salary);
     const seen = new Set();
     jobs = jobs.filter(j => {
@@ -638,10 +655,25 @@ async function loadJobs(keywords, postcode) {
       if (seen.has(key)) return false;
       seen.add(key); return true;
     });
+
+    // Update source label to show API status
+    const srcLabel = document.getElementById('source-info');
+    if (srcLabel) {
+      if (jobs.length > 0) {
+        srcLabel.textContent = `${reedOk ? '✓ Reed' : '✗ Reed'} · ${adzunaOk ? '✓ Adzuna' : '✗ Adzuna'} — ${jobs.length} live jobs found`;
+        srcLabel.style.color = '#0f6e56';
+      } else {
+        srcLabel.textContent = `APIs loading... showing sample jobs`;
+        srcLabel.style.color = '#cc8800';
+      }
+    }
+
     if (jobs.length === 0) jobs = getSampleJobs();
     allJobs = sortByUrgency(jobs);
     applyFilter(currentFilter);
   } catch(e) {
+    const srcLabel = document.getElementById('source-info');
+    if (srcLabel) { srcLabel.textContent = 'Using sample jobs — API connecting...'; srcLabel.style.color = '#cc8800'; }
     allJobs = getSampleJobs();
     applyFilter(currentFilter);
   }
