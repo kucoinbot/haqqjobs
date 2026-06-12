@@ -486,32 +486,13 @@ function formatDate(dateStr) {
   return `${days} day${days > 1 ? 's' : ''} ago`;
 }
 
-// CORS proxy — tries multiple proxies in order
-async function fetchWithProxy(url, options = {}) {
-  const proxies = [
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-    `https://corsproxy.io/?${encodeURIComponent(url)}`,
-    `https://proxy.cors.sh/${url}`
-  ];
-  for (const proxy of proxies) {
-    try {
-      const res = await fetch(proxy, { ...options, headers: { ...options.headers, 'x-requested-with': 'XMLHttpRequest' } });
-      if (res.ok) return res;
-    } catch(e) { continue; }
-  }
-  throw new Error('All proxies failed');
-}
-
 async function fetchReedJobs(keywords, postcode) {
   const params = new URLSearchParams({
     keywords: keywords || 'warehouse security construction care cleaning driver',
-    locationName: postcode || '',
-    resultsToTake: 50,
+    location: postcode || '',
     minimumSalary: Math.round(MIN_HOURLY * 2080)
   });
-  const url = `https://www.reed.co.uk/api/1.0/search?${params}`;
-  const auth = 'Basic ' + btoa('e3d82bd9-5bda-48c8-9a46-7d7baf45a21a:');
-  const res = await fetchWithProxy(url, { headers: { 'Authorization': auth } });
+  const res = await fetch(`/api/reed?${params}`);
   const data = await res.json();
   return (data.results || []).map(j => {
     const hoursAgo = j.date ? Math.round((Date.now() - new Date(j.date)) / 36e5) : 999;
@@ -529,16 +510,11 @@ async function fetchReedJobs(keywords, postcode) {
 
 async function fetchAdzunaJobs(keywords, postcode) {
   const params = new URLSearchParams({
-    app_id: '6cdb0826',
-    app_key: '267ec9dee63729f0b65a3b7657c0c850',
-    results_per_page: 50,
-    what: keywords || 'warehouse security labourer care assistant cleaner driver',
-    where: postcode || '',
-    salary_min: Math.round(MIN_HOURLY * 2080),
-    max_days_old: 2
+    keywords: keywords || 'warehouse security labourer care assistant cleaner driver',
+    location: postcode || '',
+    salary_min: Math.round(MIN_HOURLY * 2080)
   });
-  const url = `https://api.adzuna.com/v1/api/jobs/gb/search/1?${params}`;
-  const res = await fetchWithProxy(url);
+  const res = await fetch(`/api/adzuna?${params}`);
   const data = await res.json();
   return (data.results || []).map(j => {
     const hoursAgo = j.created ? Math.round((Date.now() - new Date(j.created)) / 36e5) : 999;
