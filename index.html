@@ -492,7 +492,7 @@ async function fetchReedJobs(keywords, postcode) {
     location: postcode || '',
     minimumSalary: Math.round(MIN_HOURLY * 2080)
   });
-  const res = await fetch(`/api/reed?${params}`);
+  const res = await fetch(`https://haqqjobs-api.onrender.com/api/reed?${params}`);
   const data = await res.json();
   return (data.results || []).map(j => {
     const hoursAgo = j.date ? Math.round((Date.now() - new Date(j.date)) / 36e5) : 999;
@@ -514,7 +514,7 @@ async function fetchAdzunaJobs(keywords, postcode) {
     location: postcode || '',
     salary_min: Math.round(MIN_HOURLY * 2080)
   });
-  const res = await fetch(`/api/adzuna?${params}`);
+  const res = await fetch(`https://haqqjobs-api.onrender.com/api/adzuna?${params}`);
   const data = await res.json();
   return (data.results || []).map(j => {
     const hoursAgo = j.created ? Math.round((Date.now() - new Date(j.created)) / 36e5) : 999;
